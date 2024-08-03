@@ -1,15 +1,15 @@
-from sqlalchemy import tuple_, table, ForeignKey
+from sqlalchemy import ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date
-from icecream import ic
-from datetime import date
 import json
 from os import getenv
 from dotenv import load_dotenv
 
+
 # ============================================================
 # set up thte connection
 # ============================================================
+
 load_dotenv()
 credentials = getenv('POSTGRES')
 database = getenv("BASE")
@@ -23,7 +23,6 @@ Base.metadata.create_all(engine)
 
 Session = sessionmaker(bind=engine)
 session = Session()
-
 
 
 # ============================================================
@@ -54,7 +53,6 @@ class Shop(Base):
     
    
 
-
 class Stock(Base):
     __tablename__ = 'stock'
 
@@ -77,6 +75,7 @@ class Sale(Base):
 
     stock = relationship(Stock, backref='stck')
 
+
 # ============================================================
 # clean the data
 # ============================================================
@@ -88,7 +87,6 @@ Base.metadata.drop_all(bind=engine, tables=[Publisher.__table__,
                                             Sale.__table__])
 
 Base.metadata.create_all(bind=engine)
-
 
 
 # ============================================================
@@ -115,19 +113,22 @@ session.commit()
 # find data
 # ============================================================
 
-publisher_id = input('Введите название или номер издателя: ')
+pq = session.query(Publisher, Book, Stock, Shop, Sale)
 
-pq = session.query(Publisher, Book, Stock, Shop, Sale).filter(Publisher.id==publisher_id)
-pq = pq.join(Book, Book.id_publisher == Publisher.id)
-pq = pq.join(Stock, Stock.id_book == Book.id)
-pq = pq.join(Shop, Shop.id == Stock.id_shop)
-pq = pq.join(Sale, Sale.id_stock == Stock.id)
+search_string = input('Введите название или номер издателя: ')
 
+if search_string.isdigit() and int(search_string) > 0:
+    pq = pq.filter(Publisher.id==search_string)
+else:
+    pq = pq.filter(Book.title.contains(search_string))
 
-1
+pq = pq.join(Book, Publisher.id == Book.id).\
+    join(Stock, Stock.id_book == Book.id).\
+    join(Shop, Shop.id == Stock.id_shop).\
+    join(Sale, Sale.id_stock == Stock.id)
+
 print('Найдено строк:', pq.count())
 
 for (pub, book, stock, shop, sale) in pq.all():
     # print(pub.name)
     print(f'{book.title:<43} | {shop.name:<12} | {sale.price:>8} | {sale.date_sale}')
-    
