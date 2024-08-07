@@ -7,27 +7,10 @@ from dotenv import load_dotenv
 
 
 # ============================================================
-# set up thte connection
+# ORM classes
 # ============================================================
-
-load_dotenv()
-credentials = getenv('POSTGRES')
-database = getenv("BASE")
-engine = create_engine(f'postgresql://{credentials}@{database}')
-
-engine.connect()
 
 Base = declarative_base()
-Base.metadata.create_all(engine)
-
-
-Session = sessionmaker(bind=engine)
-session = Session()
-
-
-# ============================================================
-# declare classes
-# ============================================================
 
 class Publisher(Base):
     __tablename__ = 'publisher'
@@ -51,7 +34,6 @@ class Shop(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     
-   
 
 class Stock(Base):
     __tablename__ = 'stock'
@@ -77,58 +59,87 @@ class Sale(Base):
 
 
 # ============================================================
-# clean the data
+# initialization
 # ============================================================
 
-Base.metadata.drop_all(bind=engine, tables=[Publisher.__table__,
-                                            Book.__table__,
-                                            Stock.__table__,
-                                            Shop.__table__,
-                                            Sale.__table__])
+db_session = None
 
-Base.metadata.create_all(bind=engine)
+def initialize():
 
+    # set up thte connection
+
+    load_dotenv()
+    credentials = getenv('POSTGRES')
+    database = getenv("BASE")
+    engine = create_engine(f'postgresql://{credentials}@{database}')
+
+    engine.connect()
+
+    Base.metadata.create_all(engine)
+
+    Session = sessionmaker(bind=engine)
+
+    global db_session
+    db_session = Session()
+
+    # clean and recreate the database
+
+    Base.metadata.drop_all(bind=engine, 
+        tables=[Publisher.__table__,
+            Book.__table__,
+            Stock.__table__,
+            Shop.__table__,
+            Sale.__table__])
+
+    Base.metadata.create_all(bind=engine)
+
+    # populate the database
+
+    with open('/home/evgenii/Рабочий стол/GIT/SQLalchemy/tests_data.json', 'r') as fd:
+        data = json.load(fd)
+
+    for record in data:
+        model = {
+            'publisher': Publisher,
+            'shop': Shop,
+            'book': Book,
+            'stock': Stock,
+            'sale': Sale,
+        }[record.get('model')]
+        db_session.add(model(id=record.get('pk'), **record.get('fields')))
+
+    db_session.commit()
+
+    
+def get_shops(search_string):
+
+    # find data
+
+    global db_session
+    query = db_session.query(
+        Book.title,
+        Shop.name,
+        Sale.price,
+        Sale.date_sale
+    ).select_from(Shop).\
+        join(Stock, Shop.id == Stock.id_shop).\
+        join(Book, Stock.id_book == Book.id).\
+        join(Publisher, Book.id_publisher == Publisher.id).\
+        join(Sale, Stock.id == Sale.id_stock)
+    
+    if search_string.isdigit() and int(search_string) > 0:
+        results = query.filter(Publisher.id == int(search_string)).all()
+    else:
+        results = query.filter(Book.title.ilike(f"%{search_string}%")).all()
+    
+    for book_title, shop_name, sale_price, sale_date in results:
+        print(f"{book_title: <43} | {shop_name: <12} | {sale_price: <8} | {sale_date.strftime('%d-%m-%Y')}")
 
 # ============================================================
-# populate data
+# main program code
 # ============================================================
 
-with open('/home/evgenii/Рабочий стол/GIT/SQLalchemy/tests_data.json', 'r') as fd:
-    data = json.load(fd)
-
-for record in data:
-    model = {
-        'publisher': Publisher,
-        'shop': Shop,
-        'book': Book,
-        'stock': Stock,
-        'sale': Sale,
-    }[record.get('model')]
-    session.add(model(id=record.get('pk'), **record.get('fields')))
-
-session.commit()
-
-
-# ============================================================
-# find data
-# ============================================================
-
-pq = session.query(Publisher, Book, Stock, Shop, Sale)
-
-search_string = input('Введите название или номер издателя: ')
-
-if search_string.isdigit() and int(search_string) > 0:
-    pq = pq.filter(Publisher.id==search_string)
-else:
-    pq = pq.filter(Book.title.contains(search_string))
-
-pq = pq.join(Book, Publisher.id == Book.id).\
-    join(Stock, Stock.id_book == Book.id).\
-    join(Shop, Shop.id == Stock.id_shop).\
-    join(Sale, Sale.id_stock == Stock.id)
-
-print('Найдено строк:', pq.count())
-
-for (pub, book, stock, shop, sale) in pq.all():
-    # print(pub.name)
-    print(f'{book.title:<43} | {shop.name:<12} | {sale.price:>8} | {sale.date_sale}')
+if __name__ == '__main__':
+    initialize()
+    search_string = input('Введите название или номер издателя: ')
+    get_shops(search_string)
